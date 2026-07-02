@@ -1,7 +1,8 @@
 import PySide6.QtWidgets as qw
 import PySide6.QtCore as qc
 
-# Folders don't use / but .
+# Folders don't use / but . e.g.  folder.file
+#
 import A2_py_code.GUI 
 import A2_py_code.SigalProcessing
 from A2_py_code.methods import UI, DataProcessing, SignalProcessing

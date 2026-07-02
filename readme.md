@@ -31,7 +31,7 @@ Electron
 API
 
 CMAKE:
-To integrate C++ in Python we can use [pybind11](https://pybind11.readthedocs.io/en/stable/index.html)
+To integrate C++ in Python we can use [pybind11](https://github.com/pybind/pybind11)
 
 Pybind11 makes it possible to use C++ in Python, but also to use Python in C++, this makes it possible to do [embedded programming with Python](https://pybind11.readthedocs.io/en/stable/advanced/embedding.html)!
 

@@ -7,18 +7,18 @@ import math
 import PySide6.QtWidgets as qw
 import PySide6.QtCore as qc
 
-# Definerer klasser og metoder
+# Define classes and methods
 class UI:
     pass
 
 class DataProcessing:
-    def load_data(self, filepath): # Udtrække data fra CSV fil
+    def load_data(self, filepath): # Extract data from CSV file
         return np.genfromtxt(filepath, unpack=True, delimiter=",", autostrip=True, skip_header=True)
     
-    def save_data():
+    def save_plot(): # Saves the current plot as an image
         pass
 
-    def plot_data(self, reakker, kolonner, iteration, titel, tid, supra, infra): # Plotter data
+    def plot_data(self, reakker, kolonner, iteration, titel, tid, supra, infra): # Plots the data
         plt.subplot(reakker,kolonner,iteration+1) # iteration+1, fordi man ikke kan lave et subplot 0
         plt.title(titel)
         plt.plot(tid, supra, label="supra", color="orange")
@@ -37,39 +37,26 @@ class DataProcessing:
     def samples_to_seconds(self, samples, Fs = 2000): 
         return (samples - np.min(samples)) / Fs 
 
-    def bits_to_volt(self, bitniveauer, LSB = 3.3/4096*1000): # Omregner bit-niveauer til volt - ganget med 1000 for mV
-        return bitniveauer * LSB # Ganger bit-niveauer med LSB
+    def bits_to_volt(self, bitniveauer, LSB = 3.3/4096*1000): # Convert bits to mV
+        return bitniveauer * LSB / 201 
     
-    def normalize(self, y_veardi): # Omregner bit-niveauer/spænding til en procentsats 0-100%
+    def normalize(self, y_veardi): # Normalize bits
         return (y_veardi-np.min(y_veardi)) / (np.max(y_veardi)-np.min(y_veardi)) * 100
-        # det er vigtigt at gøre dette efter alt cleaning
 
 class SignalProcessing:  
     def bandpass(self, data, fs=2000, lowcut=10, highcut=250, order=4): 
-        '''Parametre:
-        lowcut: cutoff-frekvens(Hz) for highpass (omkring 20)
-        highcut: cutoff-frekvens(Hz) for lowpass (omkring 250)
-        fs:sample frekvens = 2000
-        order=4: filterets orden (Martin)
-        ''' 
         '''###-bandpass-filter-###'''
         low = lowcut / (fs/2) #normaliseret cutoff-frekvens(mellem 0 og 1)
         high = highcut / (fs/2) #normaliseret cutoff-frekvens(mellem 0 og 1)
         b, a = sps.butter(order, [low, high], btype='band') 
 
         '''###-zero-phase-filter-###'''
-        filtered_bandpass_signal = sps.filtfilt(b, a, data)#This function applies a linear digital filter twice, once forward and once backwards. The combined filter has zero phase, hvilket betyder at når der filtreres begge veje undgås forskydning af x-aksen
+        filtered_bandpass_signal = sps.filtfilt(b, a, data)
         return filtered_bandpass_signal
-    # Bandpass fjerner offset, og derfor behøves det ikke at blive brugt
-    # Skal lave et bandpass 10-500 Hz (men varierer lidt) 1-400 Hz er også set.
-    # Vi skal lige finde ud af hvilken bandpass: tænker mellem 15 - 255 hz ud fra teori.
-    # Husk hvilken orden af filter (Terese brugte '4')
-    def notchfilter(self, data, target_freq=50, fs=2000, Q=30.0):# Fjerner en specific frekvens, ligger ofte på 50 Hz
+    
+    def notchfilter(self, data, target_freq=50, fs=2000, Q=30.0):
         '''Parametre:
-        data: EMG-signal
-        target_freq:frekvens som skal fjernes (oftes 50)
-        fs:sample frekvens = 2000
-        Q: Kvalitetsfaktor (typisk 20-50 for EMG)
+        Q: Qualityfactor (usually between 20-50 for EMG)
         '''
         '''###-notch-filter-###''' 
         w0 = target_freq / (fs/2) #kalkulere den normaliseret frekvens 
@@ -78,11 +65,10 @@ class SignalProcessing:
         filtered_notch_signal = sps.filtfilt(b, a, data)
         return filtered_notch_signal
 
-    def tkeo(self, EMG_sig): #TKEO fjerner støj
-        # Laver signalet til et array så tiger Teager-Kaiser Energy Operator(TKEO) kan beregnes 
-        tkeo_signal = np.zeros(len(EMG_sig))
+    def tkeo(self, EMG_sig):
+        tkeo_signal = np.zeros(len(EMG_sig)) # Convert the signal into an array
 
-        # Beregner TKEO 
+        # Calculate TKEO 
         for i in range(1, len(EMG_sig)-1):
             tkeo_signal[i] = EMG_sig[i]**2 - EMG_sig[i-1] * EMG_sig[i+1] # Matematisk set tager current sample i anden - samplet før * samplet efter
         
@@ -91,12 +77,13 @@ class SignalProcessing:
     def rectify(self, data):
         return np.abs(data)
 
-    def moving_average(self, data: np.ndarray, window=100, times_used=1): #Gennemsnit i vindue. HUSK: Definer window her, ik i kald
+    def moving_average(self, data: np.ndarray, window=100, times_used=1): 
         N = len(data)
-        mov_avg = np.zeros_like(data) # Nul-array i str. af data
+        mov_avg = np.zeros_like(data) # Nul-array str. of data
         halv_vindue = window // 2 
         result = data.copy()
 
+        # Needs fixing, i is never used anywhere.
         for i in range(times_used):
             for j in range(N):
                     start = max(0, j - halv_vindue)
@@ -106,38 +93,31 @@ class SignalProcessing:
         return result
 
 class FeatureCalculator:
-    def onset_detection(self, sig, baseline_samples=4500, konsekvente_samples_over_thr=100): 
-        # Beregner baseline i hvilefasen (før muskelaktiveringer)
-        baseline = sig[baseline_samples:] 
+    def onset_detection(self, sig, baseline_start=0, baseline_end=0, consecetive_samples=100): 
+        # Define baseline range
+        baseline = sig[baseline_start:baseline_end] 
 
-        # Beregner et threshold
+        # Calculate thr
         bl_mean = np.mean(baseline)
         bl_std = np.std(baseline)
-        bl_thr = bl_mean + 5*bl_std + 5 #Ofte anvendes 5-10 std sammen med TKEO
+        std_scalar = 1
+        constant = 0
+        bl_thr = bl_mean + std_scalar*bl_std + constant 
 
-        # Finder onset indexet ud fra at signalet skal være over threshhold i 50 samples i streg
+        # Computes the onset index
         count=0
         for i, signal in enumerate(sig): #Signal er ét enkelt datapunkt i EMG, mens EMG_tkeo er hele arrayet
 
             if signal > bl_thr:
                 count += 1
 
-                if count >= konsekvente_samples_over_thr:
-                    onset_index = i - konsekvente_samples_over_thr +1
+                if count >= consecetive_samples:
+                    onset_index = i - consecetive_samples +1
                     return onset_index
             else:
                 count = 0
 
 class StatisticsMath:
-    def CI_instant(self, gns, std, datapunkter): # Konfidensintervaller anvendes typisk kun med store datasæt
-        # Beregner SEM først (standard error of mean)
-        SEM = std / np.sqrt(datapunkter)
-        # Beregner konfidensintervaller
-        CI_upper = gns+1.96*SEM
-        CI_lower = gns-1.96*SEM
-
-        return CI_upper, CI_lower 
-    
     def t_test():
         pass
 
